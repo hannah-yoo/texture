@@ -8,12 +8,13 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Fake Wood — 장판 아카이브</title>
+  <title>장판 모아보기 — 장판 아카이브</title>
   <meta name="description" content="An archive of fake wood-grain flooring units collected from Korean residential and commercial product lines." />
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@400;700&display=swap" rel="stylesheet">
+  <link href="https://fonts.googleapis.com/css2?family=Noto+Sans:wght@400;700&family=Noto+Sans+KR:wght@400;700&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="style.css" />
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
 </head>
 <body>
 
@@ -23,6 +24,15 @@
 
   <div id="loading">loading…</div>
   <div id="error" style="display:none"></div>
+
+  <!-- Download button -->
+  <button id="download-btn" title="내 장판 다운로드" aria-label="Download Viewport">
+    <svg width="22" height="22" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" viewBox="0 0 24 24">
+      <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+      <polyline points="7 10 12 15 17 10" />
+      <line x1="12" y1="15" x2="12" y2="3" />
+    </svg>
+  </button>
 
   <script>
     // ─────────────────────────────────────────────────────────────
@@ -56,6 +66,12 @@
       const card = document.createElement("div");
       card.className = "card";
       card.dataset.id = record.id;
+      
+      // Store data for averaging during download
+      card.dataset.density = f[FIELDS.density] || "";
+      card.dataset.thickness = f[FIELDS.thickness] || "";
+      card.dataset.softness = f[FIELDS.softness] || "";
+      card.dataset.series = f[FIELDS.series] || "";
 
       // Image wrap (also hosts hover overlay)
       const imgWrap = document.createElement("div");
@@ -65,12 +81,13 @@
       if (imageAttachments && imageAttachments.length > 0) {
         const img = document.createElement("img");
         img.src     = imageAttachments[0].url;
+        img.crossOrigin = "anonymous";
         img.alt     = f[FIELDS.nameEn] || f[FIELDS.nameKo] || "";
         img.loading = "lazy";
         // Preserve natural aspect ratio — no aspect-ratio override
         imgWrap.appendChild(img);
       } else {
-        const randomH = Math.floor(Math.random() * 200) + 100;
+        const randomH = Math.floor(Math.random() * 100) + 320;
         const hue = Math.floor(Math.random() * 360);
         const sat = Math.floor(Math.random() * 40) + 30;
         const lit = Math.floor(Math.random() * 40) + 40;
@@ -234,13 +251,36 @@
             clone   = null;
             dragSrc = null;
           } else {
-            // Click without drag: randomly mix all tiles
+            // Stop if already animating
+            if (grid.classList.contains("is-animating")) return;
+            grid.classList.add("is-animating");
+            grid.style.pointerEvents = "none";
+
             const cards = Array.from(grid.querySelectorAll(".card"));
-            for (let i = cards.length - 1; i > 0; i--) {
-              const j = Math.floor(Math.random() * (i + 1));
-              [cards[i], cards[j]] = [cards[j], cards[i]];
-            }
-            cards.forEach(c => grid.appendChild(c));
+            
+            // Sweep up (leaving screen)
+            cards.forEach(c => {
+              c.classList.remove("sweep-in");
+              c.classList.add("sweep-up");
+            });
+
+            setTimeout(() => {
+              for (let i = cards.length - 1; i > 0; i--) {
+                const j = Math.floor(Math.random() * (i + 1));
+                [cards[i], cards[j]] = [cards[j], cards[i]];
+              }
+              cards.forEach(c => {
+                grid.appendChild(c);
+                c.classList.remove("sweep-up");
+                c.classList.add("sweep-in");
+              });
+
+              setTimeout(() => {
+                grid.classList.remove("is-animating");
+                grid.style.pointerEvents = "auto";
+                cards.forEach(c => c.classList.remove("sweep-in"));
+              }, 500); // Wait for sweep-in
+            }, 400); // Wait for sweep-up
           }
         }
 
@@ -274,6 +314,110 @@
       const grid    = document.getElementById("grid");
       const loading = document.getElementById("loading");
       const errEl   = document.getElementById("error");
+
+      function updateExportTag() {
+        let tag = document.getElementById("export-tag");
+        if (!tag) {
+          tag = document.createElement("div");
+          tag.id = "export-tag";
+          document.body.appendChild(tag);
+        }
+
+        const visibleCards = Array.from(grid.querySelectorAll(".card")).filter(card => {
+          const rect = card.getBoundingClientRect();
+          return rect.top < window.innerHeight && rect.bottom > 0;
+        });
+
+        if (visibleCards.length > 0) {
+          const mode = (arr) => {
+            const counts = {};
+            let maxCount = 0, maxItem = "—";
+            arr.forEach(item => {
+              if (!item) return;
+              counts[item] = (counts[item] || 0) + 1;
+              if (counts[item] > maxCount) {
+                maxCount = counts[item]; maxItem = item;
+              }
+            });
+            return maxItem;
+          };
+
+          let totalThick = 0, countThick = 0;
+          const softnesses = [], densities = [], series = [];
+
+          visibleCards.forEach(c => {
+            const t = parseFloat(c.dataset.thickness);
+            if (!isNaN(t)) { totalThick += t; countThick++; }
+            if (c.dataset.softness) softnesses.push(c.dataset.softness);
+            if (c.dataset.density) densities.push(c.dataset.density);
+            if (c.dataset.series) series.push(c.dataset.series);
+          });
+
+          const avgThick = countThick > 0 ? (totalThick / countThick).toFixed(1) + "mm" : "—";
+          const modeSoft = mode(softnesses);
+          const modeDens = mode(densities);
+          const modeSeri = mode(series);
+
+          tag.innerHTML = `
+            <div class="tag-header">
+              <span class="tag-title">나의 장판 모음</span>
+              <span class="tag-id">MIX ${Date.now().toString().slice(-6)}</span>
+            </div>
+            <div class="tag-body">
+              <div class="tag-row"><strong>평균 두께</strong> <span>${avgThick}</span></div>
+              <div class="tag-row"><strong>주요 푹신함</strong> <span>${modeSoft}</span></div>
+              <div class="tag-row"><strong>주요 밀도</strong> <span>${modeDens}</span></div>
+              <div class="tag-row"><strong>주요 시리즈</strong> <span>${modeSeri}</span></div>
+            </div>
+          `;
+        }
+      }
+
+      const dlBtn = document.getElementById("download-btn");
+      dlBtn.addEventListener("mouseenter", () => {
+        updateExportTag();
+        const tag = document.getElementById("export-tag");
+        if (tag) tag.classList.add("show");
+      });
+      dlBtn.addEventListener("mouseleave", () => {
+        const tag = document.getElementById("export-tag");
+        if (tag) tag.classList.remove("show");
+      });
+
+      dlBtn.addEventListener("click", async () => {
+        dlBtn.style.display = "none";
+        
+        const tag = document.getElementById("export-tag");
+        if (tag) {
+          tag.classList.add("show"); // Ensure visible during capture
+          tag.style.transition = "none"; // Disable fade for instant capture
+        }
+
+        try {
+          const canvas = await html2canvas(document.body, {
+            y: window.scrollY,
+            x: 0,
+            width: window.innerWidth,
+            height: window.innerHeight,
+            backgroundColor: "#0a0a0a",
+            useCORS: true,
+            scale: 2
+          });
+          const link = document.createElement("a");
+          link.download = `jangpan-collection-${Date.now()}.jpg`;
+          link.href = canvas.toDataURL("image/jpeg", 0.95);
+          link.click();
+        } catch (err) {
+          console.error("Screenshot failed:", err);
+          alert("다운로드 중 오류가 발생했습니다.");
+        }
+        
+        dlBtn.style.display = "flex";
+        if (tag) {
+          tag.classList.remove("show");
+          tag.style.transition = "";
+        }
+      });
 
       try {
         const records = await fetchAirtable();
