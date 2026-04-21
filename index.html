@@ -10,14 +10,12 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Fake Wood — 장판 아카이브</title>
   <meta name="description" content="An archive of fake wood-grain flooring units collected from Korean residential and commercial product lines." />
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@400;700&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="style.css" />
 </head>
 <body>
-
-  <header>
-    <h1>Fake Wood</h1>
-    <span id="site-desc">장판 아카이브</span>
-  </header>
 
   <section class="works">
     <div id="grid"></div>
@@ -72,7 +70,13 @@
         // Preserve natural aspect ratio — no aspect-ratio override
         imgWrap.appendChild(img);
       } else {
-        imgWrap.style.background = "#111";
+        const randomH = Math.floor(Math.random() * 200) + 100;
+        const hue = Math.floor(Math.random() * 360);
+        const sat = Math.floor(Math.random() * 40) + 30;
+        const lit = Math.floor(Math.random() * 40) + 40;
+        imgWrap.style.height = `${randomH}px`;
+        imgWrap.style.backgroundColor = `hsl(${hue}, ${sat}%, ${lit}%)`;
+
         const label = document.createElement("span");
         label.className = "placeholder-label";
         label.textContent = "—";
@@ -229,6 +233,14 @@
             clone?.remove();
             clone   = null;
             dragSrc = null;
+          } else {
+            // Click without drag: randomly mix all tiles
+            const cards = Array.from(grid.querySelectorAll(".card"));
+            for (let i = cards.length - 1; i > 0; i--) {
+              const j = Math.floor(Math.random() * (i + 1));
+              [cards[i], cards[j]] = [cards[j], cards[i]];
+            }
+            cards.forEach(c => grid.appendChild(c));
           }
         }
 
