@@ -1,0 +1,294 @@
+<!DOCTYPE html>
+<!--
+  Based on template by Prof. Yuseon Park
+  Hongik University, Design Research Studio, 2026
+  Extended with: Airtable API fetch, masonry grid, hover overlay, pointer drag-to-swap
+-->
+<html lang="ko">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Fake Wood — 장판 아카이브</title>
+  <meta name="description" content="An archive of fake wood-grain flooring units collected from Korean residential and commercial product lines." />
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+
+  <header>
+    <h1>Fake Wood</h1>
+    <span id="site-desc">장판 아카이브</span>
+  </header>
+
+  <section class="works">
+    <div id="grid"></div>
+  </section>
+
+  <div id="loading">loading…</div>
+  <div id="error" style="display:none"></div>
+
+  <script>
+    // ─────────────────────────────────────────────────────────────
+    // Config
+    // ─────────────────────────────────────────────────────────────
+    const AIRTABLE_TOKEN  = "patMrJnngETB8Srn9.2291fafcbf0c5009f6cd1bb0fb76f64a4186e03dc379d4ef282b70acd6ed3dea";
+    const AIRTABLE_BASE   = "app0gYEl62r82qDqK";
+    const AIRTABLE_TABLE  = "css용 시트";
+
+    const FIELDS = {
+      nameKo:    "장판 이름 (한글)",
+      nameEn:    "장판 이름 (영어)",
+      image:     "사진",
+      unitSize:  "나무판 무늬 유닛 1개 크기",
+      maxRepeat: "똑같은 디자인이 반복되지 않는 최대 크기",
+      density:   "단위무늬당 유닛 밀도",
+      pattern:   "제조사에서 말하는 무늬 특징",
+      thickness: "두께",
+      softness:  "푹신함? 단단함?",
+      purpose:   "장판의 목적",
+      series:    "장판 시리즈 이름",
+      brand:     "출시 회사",
+    };
+
+    // ─────────────────────────────────────────────────────────────
+    // Build a single card element
+    // ─────────────────────────────────────────────────────────────
+    function buildCard(record, index) {
+      const f = record.fields;
+
+      const card = document.createElement("div");
+      card.className = "card";
+      card.dataset.id = record.id;
+
+      // Image wrap (also hosts hover overlay)
+      const imgWrap = document.createElement("div");
+      imgWrap.className = "card-img-wrap";
+
+      const imageAttachments = f[FIELDS.image];
+      if (imageAttachments && imageAttachments.length > 0) {
+        const img = document.createElement("img");
+        img.src     = imageAttachments[0].url;
+        img.alt     = f[FIELDS.nameEn] || f[FIELDS.nameKo] || "";
+        img.loading = "lazy";
+        // Preserve natural aspect ratio — no aspect-ratio override
+        imgWrap.appendChild(img);
+      } else {
+        imgWrap.style.background = "#111";
+        const label = document.createElement("span");
+        label.className = "placeholder-label";
+        label.textContent = "—";
+        imgWrap.appendChild(label);
+      }
+
+      // Hover overlay — ALL info lives here only
+      const overlay = document.createElement("div");
+      overlay.className = "card-overlay";
+
+      const rows = [
+        { label: "한국어명",  value: f[FIELDS.nameKo] },
+        { label: "시리즈",    value: f[FIELDS.series] },
+        { label: "용도",      value: f[FIELDS.purpose] },
+        { label: "유닛 크기", value: f[FIELDS.unitSize] },
+        { label: "반복 최대", value: f[FIELDS.maxRepeat] },
+        { label: "밀도",      value: f[FIELDS.density] },
+        { label: "두께",      value: f[FIELDS.thickness] },
+        { label: "푹신함",    value: f[FIELDS.softness] },
+        { label: "무늬 특징", value: f[FIELDS.pattern] },
+      ].filter(r => r.value);
+
+      overlay.innerHTML = `
+        <p class="overlay-title">${f[FIELDS.nameEn] || f[FIELDS.nameKo] || "—"}</p>
+        ${f[FIELDS.brand] ? `<p class="overlay-brand">${f[FIELDS.brand]}</p>` : ""}
+        ${rows.length > 0 ? `<dl>${rows.map(r => `<dt>${r.label}</dt><dd>${r.value}</dd>`).join("")}</dl>` : ""}
+      `;
+
+      imgWrap.appendChild(overlay);
+      card.appendChild(imgWrap);
+
+      // No footer — intentionally omitted
+
+      return card;
+    }
+
+    // ─────────────────────────────────────────────────────────────
+    // Custom pointer-event drag-to-SWAP
+    // Works with CSS columns masonry by using element swapping
+    // ─────────────────────────────────────────────────────────────
+    function initDragSwap(grid) {
+      let dragSrc = null;
+      let clone   = null;
+      let startX  = 0, startY = 0;
+      let cloneOffX = 0, cloneOffY = 0;
+
+      // Create floating clone element (appended to body)
+      function createClone(card) {
+        const rect = card.getBoundingClientRect();
+        const c = card.cloneNode(true);
+        c.id = "drag-clone";
+        c.style.width  = rect.width  + "px";
+        c.style.height = rect.height + "px";
+        c.style.left   = rect.left   + "px";
+        c.style.top    = rect.top    + "px";
+        // Hide overlay on clone
+        const ov = c.querySelector(".card-overlay");
+        if (ov) ov.style.opacity = "0";
+        document.body.appendChild(c);
+        return c;
+      }
+
+      function moveClone(e) {
+        if (!clone) return;
+        const cx = (e.clientX ?? e.touches?.[0]?.clientX) - cloneOffX;
+        const cy = (e.clientY ?? e.touches?.[0]?.clientY) - cloneOffY;
+        clone.style.left = cx + "px";
+        clone.style.top  = cy + "px";
+      }
+
+      function cardUnder(e) {
+        // Temporarily hide clone so elementFromPoint works
+        if (clone) clone.style.display = "none";
+        const x = e.clientX ?? e.touches?.[0]?.clientX;
+        const y = e.clientY ?? e.touches?.[0]?.clientY;
+        const el = document.elementFromPoint(x, y);
+        if (clone) clone.style.display = "";
+        return el?.closest(".card");
+      }
+
+      function swapCards(a, b) {
+        if (!a || !b || a === b) return;
+        // In a DOM without flex/grid order, we swap nodes directly
+        const parentA = a.parentNode;
+        const parentB = b.parentNode;
+        const nextA   = a.nextSibling;
+        const nextB   = b.nextSibling;
+
+        if (parentA === parentB) {
+          if (nextA === b) {
+            parentA.insertBefore(b, a);
+          } else if (nextB === a) {
+            parentB.insertBefore(a, b);
+          } else {
+            if (nextA) parentA.insertBefore(b, nextA);
+            else parentA.appendChild(b);
+            if (nextB) parentB.insertBefore(a, nextB);
+            else parentB.appendChild(a);
+          }
+        }
+      }
+
+      // ── Pointer events ───────────────────────────────────────
+      grid.addEventListener("pointerdown", e => {
+        // Only primary button / touch
+        if (e.pointerType === "mouse" && e.button !== 0) return;
+
+        const card = e.target.closest(".card");
+        if (!card) return;
+
+        // Ignore clicks on overlay links etc.
+        const rect = card.getBoundingClientRect();
+        startX = e.clientX;
+        startY = e.clientY;
+        cloneOffX = e.clientX - rect.left;
+        cloneOffY = e.clientY - rect.top;
+
+        let dragStarted = false;
+        const THRESHOLD = 6; // px before drag activates
+
+        function onMove(ev) {
+          const dx = ev.clientX - startX;
+          const dy = ev.clientY - startY;
+
+          if (!dragStarted && Math.sqrt(dx*dx + dy*dy) < THRESHOLD) return;
+
+          if (!dragStarted) {
+            dragStarted = true;
+            dragSrc = card;
+            card.classList.add("card-dragging");
+            clone = createClone(card);
+          }
+
+          ev.preventDefault();
+          moveClone(ev);
+
+          // Highlight potential swap target
+          const target = cardUnder(ev);
+          grid.querySelectorAll(".card-ghost").forEach(c => c.classList.remove("card-ghost"));
+          if (target && target !== dragSrc) target.classList.add("card-ghost");
+        }
+
+        function onUp(ev) {
+          window.removeEventListener("pointermove", onMove);
+          window.removeEventListener("pointerup",   onUp);
+
+          if (dragStarted) {
+            const target = cardUnder(ev);
+            if (target && target !== dragSrc) {
+              swapCards(dragSrc, target);
+            }
+            dragSrc.classList.remove("card-dragging");
+            grid.querySelectorAll(".card-ghost").forEach(c => c.classList.remove("card-ghost"));
+            clone?.remove();
+            clone   = null;
+            dragSrc = null;
+          }
+        }
+
+        window.addEventListener("pointermove", onMove, { passive: false });
+        window.addEventListener("pointerup",   onUp);
+      });
+
+      // Prevent context menu on long-press mobile
+      grid.addEventListener("contextmenu", e => {
+        if (dragSrc) e.preventDefault();
+      });
+    }
+
+    // ─────────────────────────────────────────────────────────────
+    // Fetch from Airtable
+    // ─────────────────────────────────────────────────────────────
+    async function fetchAirtable() {
+      const url = `https://api.airtable.com/v0/${AIRTABLE_BASE}/${encodeURIComponent(AIRTABLE_TABLE)}?pageSize=100`;
+      const res = await fetch(url, {
+        headers: { Authorization: `Bearer ${AIRTABLE_TOKEN}` }
+      });
+      if (!res.ok) throw new Error(`Airtable error ${res.status}`);
+      const data = await res.json();
+      return data.records;
+    }
+
+    // ─────────────────────────────────────────────────────────────
+    // Main
+    // ─────────────────────────────────────────────────────────────
+    async function init() {
+      const grid    = document.getElementById("grid");
+      const loading = document.getElementById("loading");
+      const errEl   = document.getElementById("error");
+
+      try {
+        const records = await fetchAirtable();
+
+        loading.style.display = "none";
+
+        records.forEach((record, i) => {
+          if (!record.fields[FIELDS.nameEn] && !record.fields[FIELDS.nameKo]) return;
+          grid.appendChild(buildCard(record, i));
+        });
+
+        initDragSwap(grid);
+
+      } catch (err) {
+        loading.style.display = "none";
+        errEl.style.display   = "block";
+        errEl.innerHTML = `
+          <strong>데이터를 불러오지 못했습니다.</strong><br>
+          ${err.message}<br><br>
+          ① Airtable token과 base ID를 확인하세요<br>
+          ② Live Server 또는 GitHub Pages에서 실행하세요 (file:// 불가)
+        `;
+        console.error(err);
+      }
+    }
+
+    init();
+  </script>
+</body>
+</html>

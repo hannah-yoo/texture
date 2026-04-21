@@ -1,0 +1,243 @@
+*, *::before, *::after {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+:root {
+  --bg:          #0a0a0a;
+  --fg:          #f0ede8;
+  --fg-muted:    rgba(240,237,232,0.45);
+  --overlay-bg:  rgba(8, 8, 8, 0.82);
+  --font-display: 'Georgia', serif;
+  --font-body:   'Helvetica Neue', Helvetica, Arial, sans-serif;
+}
+
+html, body {
+  background: var(--bg);
+  color: var(--fg);
+  font-family: var(--font-body);
+  line-height: 1.4;
+  min-height: 100vh;
+}
+
+/* ── Minimal floating header ──────────────────────────── */
+header {
+  position: fixed;
+  top: 0;
+  left: 0;
+  z-index: 100;
+  padding: 1rem 1.2rem;
+  display: flex;
+  align-items: baseline;
+  gap: 1rem;
+  /* subtle fade at edges */
+  background: linear-gradient(to bottom, rgba(10,10,10,0.72) 0%, transparent 100%);
+  width: 100%;
+  pointer-events: none; /* clicks pass through to tiles */
+}
+
+header h1,
+header #site-desc {
+  pointer-events: auto;
+}
+
+h1 {
+  font-family: var(--font-display);
+  font-size: 1.05rem;
+  font-weight: 400;
+  letter-spacing: 0.01em;
+  color: var(--fg);
+  opacity: 0.85;
+}
+
+#site-desc {
+  font-size: 0.72rem;
+  color: var(--fg-muted);
+  letter-spacing: 0.04em;
+}
+
+/* ── About (hidden by default, toggled on click) ──────── */
+.about {
+  display: none;
+}
+
+/* ── Grid — zero-gap masonry via CSS columns ──────────── */
+.works {
+  /* no padding — tiles go edge-to-edge */
+  padding: 0;
+}
+
+#grid {
+  columns: 5 160px;
+  column-gap: 0;
+  /* Push content below fixed header (small so tiles still feel full-bleed) */
+  padding-top: 0;
+}
+
+/* ── Card ─────────────────────────────────────────────── */
+.card {
+  break-inside: avoid;
+  margin-bottom: 0;       /* zero gap vertically */
+  background: var(--bg);
+  border: none;
+  border-radius: 0;
+  overflow: hidden;
+  cursor: grab;
+  position: relative;
+  /* subtle transition for drag feedback */
+  transition: filter 0.15s ease;
+}
+
+.card:active {
+  cursor: grabbing;
+}
+
+/* ── Card image wrap ──────────────────────────────────── */
+.card-img-wrap {
+  position: relative;
+  width: 100%;
+  overflow: hidden;
+}
+
+.card-img-wrap img {
+  width: 100%;
+  height: auto;           /* let natural aspect ratio dictate height */
+  display: block;
+  object-fit: cover;
+  /* tiny 1px black line between tiles to separate them cleanly */
+  border-bottom: 1px solid var(--bg);
+}
+
+/* Placeholder (no image) */
+.card-img-wrap:not(:has(img)) {
+  aspect-ratio: 3 / 4;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: #1a1a1a;
+}
+
+.placeholder-label {
+  font-size: 0.65rem;
+  color: rgba(240,237,232,0.2);
+  letter-spacing: 0.04em;
+}
+
+/* ── Hover overlay ────────────────────────────────────── */
+.card-overlay {
+  position: absolute;
+  inset: 0;
+  background: var(--overlay-bg);
+  color: var(--fg);
+  padding: 0.85rem 0.9rem;
+  opacity: 0;
+  transition: opacity 0.2s ease;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+  /* hide scrollbar */
+  scrollbar-width: none;
+}
+.card-overlay::-webkit-scrollbar { display: none; }
+
+.card-img-wrap:hover .card-overlay {
+  opacity: 1;
+}
+
+.overlay-title {
+  font-family: var(--font-display);
+  font-size: 0.85rem;
+  font-weight: 400;
+  color: #fff;
+  margin-bottom: 0.2rem;
+  border-bottom: 1px solid rgba(255,255,255,0.12);
+  padding-bottom: 0.35rem;
+}
+
+.overlay-brand {
+  font-size: 0.68rem;
+  color: var(--fg-muted);
+  letter-spacing: 0.03em;
+  margin-bottom: 0.15rem;
+}
+
+.card-overlay dl {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 0.18rem 0.55rem;
+  font-size: 0.68rem;
+  line-height: 1.5;
+}
+
+.card-overlay dt {
+  color: rgba(240,237,232,0.42);
+  white-space: nowrap;
+}
+
+.card-overlay dd {
+  color: var(--fg);
+}
+
+/* ── No footer (was card-footer) — removed entirely ──── */
+.card-footer { display: none; }
+
+/* ── Drag states ──────────────────────────────────────── */
+.card-ghost {
+  opacity: 0.25;
+}
+
+.card-dragging {
+  opacity: 0.0;            /* original slot is invisible */
+}
+
+/* The floating clone while dragging */
+#drag-clone {
+  position: fixed;
+  pointer-events: none;
+  z-index: 999;
+  opacity: 0.88;
+  transform: rotate(1.5deg) scale(1.04);
+  box-shadow: 0 16px 48px rgba(0,0,0,0.6);
+  transition: transform 0.08s ease;
+  border-radius: 0;
+  overflow: hidden;
+}
+
+/* ── Loading / Error ──────────────────────────────────── */
+#loading {
+  position: fixed;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 0.75rem;
+  color: var(--fg-muted);
+  letter-spacing: 0.08em;
+  background: var(--bg);
+  z-index: 200;
+}
+
+#error {
+  margin: 2rem;
+  padding: 1.25rem 1.5rem;
+  border: 1px solid #5a2222;
+  background: #1a0808;
+  border-radius: 3px;
+  font-size: 0.8rem;
+  color: #d48888;
+  line-height: 1.8;
+}
+
+/* ── Responsive ───────────────────────────────────────── */
+@media (max-width: 1100px) {
+  #grid { columns: 4 150px; }
+}
+@media (max-width: 800px) {
+  #grid { columns: 3 130px; }
+}
+@media (max-width: 520px) {
+  #grid { columns: 2 120px; }
+  h1 { font-size: 0.9rem; }
+}
