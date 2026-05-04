@@ -12,7 +12,7 @@
   <meta name="description" content="An archive of fake wood-grain flooring units collected from Korean residential and commercial product lines." />
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Noto+Sans:wght@400;700&family=Noto+Sans+KR:wght@400;700&display=swap" rel="stylesheet">
+  <link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,300;0,400;0,500;0,600;0,700;1,300;1,400;1,500;1,600;1,700&family=Playfair+Display:ital,wght@0,400..900;1,400..900&family=Noto+Sans:wght@400;700&family=Noto+Sans+KR:wght@400;700&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="style.css" />
   <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
 </head>
@@ -24,6 +24,11 @@
 
   <div id="loading">loading…</div>
   <div id="error" style="display:none"></div>
+
+  <!-- Click hint -->
+  <div id="click-hint">
+    <span>click anywhere to reveal</span>
+  </div>
 
   <!-- Download button -->
   <button id="download-btn" title="내 장판 다운로드" aria-label="Download Viewport">
@@ -57,11 +62,84 @@
       brand:     "출시 회사",
     };
 
+    // State: whether we've revealed the wood or not
+    let isRevealed = false;
+
+    // ─────────────────────────────────────────────────────────────
+    // Compute font size to fill tile
+    // ─────────────────────────────────────────────────────────────
+    // Measure to find best font size — guarantees NO mid-word breaks
+    function fitTextToContainer(textEl, containerW, containerH, fontFamily) {
+      const text = textEl.textContent;
+      const words = text.split(/\s+/);
+      const pad = 12;
+      const targetW = containerW - pad;
+      const targetH = containerH - pad;
+      const ff = fontFamily || "'Cormorant Garamond', Georgia, serif";
+      
+      // Measurer for the widest single word (nowrap)
+      const wordMeasurer = document.createElement("span");
+      wordMeasurer.style.cssText = `
+        position: absolute; left: -9999px; top: -9999px; visibility: hidden;
+        font-family: ${ff};
+        font-style: italic; font-weight: 600; line-height: 1.0;
+        text-transform: capitalize; letter-spacing: -0.01em;
+        white-space: nowrap; display: inline-block; padding: 0;
+      `;
+      document.body.appendChild(wordMeasurer);
+      
+      // Measurer for full text block (wraps at word boundaries)
+      const blockMeasurer = document.createElement("div");
+      blockMeasurer.style.cssText = `
+        position: absolute; left: -9999px; top: -9999px; visibility: hidden;
+        font-family: ${ff};
+        font-style: italic; font-weight: 600; line-height: 1.0;
+        text-align: center; text-transform: capitalize; letter-spacing: -0.01em;
+        word-break: normal; overflow-wrap: normal; hyphens: none;
+        width: ${targetW}px; padding: 0;
+      `;
+      blockMeasurer.textContent = text;
+      document.body.appendChild(blockMeasurer);
+      
+      // Binary search
+      let lo = 14, hi = 300, best = lo;
+      
+      while (lo <= hi) {
+        const mid = Math.floor((lo + hi) / 2);
+        const fontSize = mid + "px";
+        
+        // Check widest word doesn't exceed container width
+        wordMeasurer.style.fontSize = fontSize;
+        let maxWordW = 0;
+        for (const w of words) {
+          wordMeasurer.textContent = w;
+          maxWordW = Math.max(maxWordW, wordMeasurer.offsetWidth);
+        }
+        
+        // Check total text height with natural word wrapping
+        blockMeasurer.style.fontSize = fontSize;
+        const totalH = blockMeasurer.scrollHeight;
+        
+        if (maxWordW <= targetW && totalH <= targetH) {
+          best = mid;
+          lo = mid + 1;
+        } else {
+          hi = mid - 1;
+        }
+      }
+      
+      document.body.removeChild(wordMeasurer);
+      document.body.removeChild(blockMeasurer);
+      
+      return Math.max(14, best);
+    }
+
     // ─────────────────────────────────────────────────────────────
     // Build a single card element
     // ─────────────────────────────────────────────────────────────
     function buildCard(record, index) {
       const f = record.fields;
+      const name = f[FIELDS.nameEn] || f[FIELDS.nameKo] || "—";
 
       const card = document.createElement("div");
       card.className = "card";
@@ -76,16 +154,47 @@
       // Image wrap (also hosts hover overlay)
       const imgWrap = document.createElement("div");
       imgWrap.className = "card-img-wrap";
+      
+      // Vary aspect ratios for visual interest
+      const ratios = ["4 / 5", "3 / 4", "5 / 6", "1 / 1", "4 / 5"];
+      imgWrap.style.aspectRatio = ratios[index % ratios.length];
 
       const imageAttachments = f[FIELDS.image];
+      let imgUrl = "";
+      
+      // Pick a font family for this card
+      const fonts = [
+        "'Cormorant Garamond', Georgia, serif",
+        "'Playfair Display', Georgia, serif",
+      ];
+      const fontChoice = fonts[index % fonts.length];
+      
       if (imageAttachments && imageAttachments.length > 0) {
+        imgUrl = imageAttachments[0].url;
+        
+        // Hidden image (shown on reveal)
         const img = document.createElement("img");
-        img.src     = imageAttachments[0].url;
+        img.src     = imgUrl;
         img.crossOrigin = "anonymous";
-        img.alt     = f[FIELDS.nameEn] || f[FIELDS.nameKo] || "";
+        img.alt     = name;
         img.loading = "lazy";
-        // Preserve natural aspect ratio — no aspect-ratio override
+        img.className = "card-wood-img";
         imgWrap.appendChild(img);
+
+        // Text layer with wood texture fill
+        const textLayer = document.createElement("div");
+        textLayer.className = "card-text-layer";
+        
+        const textEl = document.createElement("span");
+        textEl.className = "card-name-text";
+        textEl.textContent = name;
+        textEl.style.backgroundImage = `url(${imgUrl})`;
+        textEl.style.fontFamily = fontChoice;
+        textEl.dataset.font = fontChoice; // Store for measurement
+        
+        textLayer.appendChild(textEl);
+        imgWrap.appendChild(textLayer);
+        
       } else {
         const randomH = Math.floor(Math.random() * 100) + 320;
         const hue = Math.floor(Math.random() * 360);
@@ -117,7 +226,7 @@
       ].filter(r => r.value);
 
       overlay.innerHTML = `
-        <p class="overlay-title">${f[FIELDS.nameEn] || f[FIELDS.nameKo] || "—"}</p>
+        <p class="overlay-title">${name}</p>
         ${f[FIELDS.brand] ? `<p class="overlay-brand">${f[FIELDS.brand]}</p>` : ""}
         ${rows.length > 0 ? `<dl>${rows.map(r => `<dt>${r.label}</dt><dd>${r.value}</dd>`).join("")}</dl>` : ""}
       `;
@@ -125,9 +234,45 @@
       imgWrap.appendChild(overlay);
       card.appendChild(imgWrap);
 
-      // No footer — intentionally omitted
-
       return card;
+    }
+
+    // ─────────────────────────────────────────────────────────────
+    // After all images loaded, compute font sizes to fill tiles
+    // ─────────────────────────────────────────────────────────────
+    function adjustFontSizes() {
+      const cards = document.querySelectorAll(".card");
+      cards.forEach(card => {
+        const textEl = card.querySelector(".card-name-text");
+        if (!textEl) return;
+        
+        const wrap = card.querySelector(".card-img-wrap");
+        const w = wrap.offsetWidth;
+        const h = wrap.offsetHeight;
+        
+        if (w === 0 || h === 0) return;
+        
+        const fontFamily = textEl.dataset.font;
+        const fontSize = fitTextToContainer(textEl, w, h, fontFamily);
+        textEl.style.fontSize = fontSize + "px";
+        
+        // Also adjust background-size so the wood grain is nicely visible in the text
+        textEl.style.backgroundSize = `${w}px ${h}px`;
+      });
+    }
+
+    // ─────────────────────────────────────────────────────────────
+    // Reveal: click to show the actual wood
+    // ─────────────────────────────────────────────────────────────
+    function revealWood() {
+      if (isRevealed) return;
+      isRevealed = true;
+      
+      document.body.classList.add("revealed");
+      
+      // Hide click hint
+      const hint = document.getElementById("click-hint");
+      if (hint) hint.classList.add("hidden");
     }
 
     // ─────────────────────────────────────────────────────────────
@@ -251,41 +396,20 @@
             clone   = null;
             dragSrc = null;
           } else {
-            // Stop if already animating
-            if (grid.classList.contains("is-animating")) return;
-            grid.classList.add("is-animating");
-            grid.style.pointerEvents = "none";
-
-            const cards = Array.from(grid.querySelectorAll(".card"));
-            
-            // Sweep up (leaving screen)
-            cards.forEach(c => {
-              c.classList.remove("sweep-in");
-              c.classList.add("sweep-up");
-            });
-
-            setTimeout(() => {
-              for (let i = cards.length - 1; i > 0; i--) {
-                const j = Math.floor(Math.random() * (i + 1));
-                [cards[i], cards[j]] = [cards[j], cards[i]];
-              }
-              cards.forEach(c => {
-                grid.appendChild(c);
-                c.classList.remove("sweep-up");
-                c.classList.add("sweep-in");
-              });
-
-              setTimeout(() => {
-                grid.classList.remove("is-animating");
-                grid.style.pointerEvents = "auto";
-                cards.forEach(c => c.classList.remove("sweep-in"));
-              }, 500); // Wait for sweep-in
-            }, 400); // Wait for sweep-up
+            // Simple click → reveal the wood
+            revealWood();
           }
         }
 
         window.addEventListener("pointermove", onMove, { passive: false });
         window.addEventListener("pointerup",   onUp);
+      });
+
+      // Also listen on body for clicks outside the grid
+      document.body.addEventListener("click", (e) => {
+        if (!isRevealed && !e.target.closest("#download-btn")) {
+          revealWood();
+        }
       });
 
       // Prevent context menu on long-press mobile
@@ -384,7 +508,8 @@
         if (tag) tag.classList.remove("show");
       });
 
-      dlBtn.addEventListener("click", async () => {
+      dlBtn.addEventListener("click", async (e) => {
+        e.stopPropagation(); // Don't trigger reveal
         dlBtn.style.display = "none";
         
         const tag = document.getElementById("export-tag");
@@ -427,6 +552,39 @@
         records.forEach((record, i) => {
           if (!record.fields[FIELDS.nameEn] && !record.fields[FIELDS.nameKo]) return;
           grid.appendChild(buildCard(record, i));
+        });
+
+        // Wait for images to load, then compute font sizes
+        const images = grid.querySelectorAll(".card-wood-img");
+        let loaded = 0;
+        const totalImages = images.length;
+        
+        if (totalImages === 0) {
+          adjustFontSizes();
+        } else {
+          images.forEach(img => {
+            if (img.complete) {
+              loaded++;
+              if (loaded >= totalImages) adjustFontSizes();
+            } else {
+              img.addEventListener("load", () => {
+                loaded++;
+                if (loaded >= totalImages) adjustFontSizes();
+              });
+              img.addEventListener("error", () => {
+                loaded++;
+                if (loaded >= totalImages) adjustFontSizes();
+              });
+            }
+          });
+          
+          // Fallback: adjust after 3s regardless
+          setTimeout(adjustFontSizes, 3000);
+        }
+        
+        // Re-adjust on resize
+        window.addEventListener("resize", () => {
+          adjustFontSizes();
         });
 
         initDragSwap(grid);
