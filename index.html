@@ -66,60 +66,23 @@
     let isRevealed = false;
 
     // ─────────────────────────────────────────────────────────────
-    // Compute font size so each word fills the tile width,
-    // then return the total height needed.
-    // Each word is on its own line (stacked via <br>).
+    // Fetch from Wikimedia Commons
     // ─────────────────────────────────────────────────────────────
-    function fitText(containerW, text, fontFamily) {
-      const words = text.split(/\s+/);
-      const hPad = 16;           // breathing room left+right
-      const vPad = 20;           // breathing room top+bottom
-      const targetW = containerW - hPad;
-      const ff = fontFamily;
-
-      // Measure each word individually with nowrap
-      const span = document.createElement("span");
-      span.style.cssText = `
-        position:absolute; left:-9999px; top:-9999px; visibility:hidden;
-        font-family:${ff}; line-height:1.1;
-        text-transform:capitalize; letter-spacing:-0.01em;
-        white-space:nowrap; display:inline-block; padding:0;
-      `;
-      document.body.appendChild(span);
-
-      // For each word, find the largest font-size that fits targetW
-      // Then pick the MINIMUM across all words so they all fit.
-      let minFontSize = 300;
-
-      for (const word of words) {
-        span.textContent = word;
-        let lo = 10, hi = 300, best = lo;
-        while (lo <= hi) {
-          const mid = Math.floor((lo + hi) / 2);
-          span.style.fontSize = mid + "px";
-          if (span.offsetWidth <= targetW) {
-            best = mid;
-            lo = mid + 1;
-          } else {
-            hi = mid - 1;
-          }
+    async function fetchWikiImage(query) {
+      if (!query) return null;
+      const url = `https://en.wikipedia.org/w/api.php?action=query&generator=search&gsrsearch=${encodeURIComponent(query)}&gsrlimit=1&prop=pageimages&format=json&piprop=original&origin=*`;
+      try {
+        const res = await fetch(url);
+        const data = await res.json();
+        const pages = data.query?.pages;
+        if (pages) {
+          const firstPage = Object.values(pages)[0];
+          return firstPage.original?.source || null;
         }
-        minFontSize = Math.min(minFontSize, best);
+      } catch (err) {
+        console.error("Wiki API error:", err);
       }
-
-      // Now measure total height at that font size (all words stacked)
-      span.style.fontSize = minFontSize + "px";
-      let totalH = 0;
-      for (const word of words) {
-        span.textContent = word;
-        totalH += span.offsetHeight;
-      }
-
-      document.body.removeChild(span);
-
-      const fontSize = Math.max(10, minFontSize);
-      const height = totalH + vPad;
-      return { fontSize, height };
+      return null;
     }
 
     // ─────────────────────────────────────────────────────────────
@@ -145,21 +108,13 @@
       
       const imageAttachments = f[FIELDS.image];
       let imgUrl = "";
-
-      // Pick a font family for this card — mix of cursive & heavy serif
-      const fonts = [
-        "'Monsieur La Doulaise', cursive",
-        "'Gravitas One', serif",
-        "'Fleur De Leah', cursive",
-        "'Ultra', serif",
-        "'Rouge Script', cursive",
-        "'Lobster', cursive",
-        "'Mea Culpa', cursive",
-      ];
-      const fontChoice = fonts[index % fonts.length];
       
       if (imageAttachments && imageAttachments.length > 0) {
         imgUrl = imageAttachments[0].url;
+        
+        // Randomize tile height since we don't have text to dictate it anymore
+        const randomH = Math.floor(Math.random() * 140) + 220;
+        imgWrap.style.height = `${randomH}px`;
         
         // Hidden image (shown on reveal)
         const img = document.createElement("img");
@@ -170,25 +125,35 @@
         img.className = "card-wood-img";
         imgWrap.appendChild(img);
 
-        // Text layer with wood texture fill
+        // Concept image layer (Wikipedia image)
         const textLayer = document.createElement("div");
-        textLayer.className = "card-text-layer";
+        textLayer.className = "card-text-layer"; // Reuse class for dissolve animation
         
-        const textEl = document.createElement("span");
-        textEl.className = "card-name-text";
-        // One word per line — no orphans
-        textEl.innerHTML = name.split(/\s+/).map(w => {
-          const d = document.createElement("span");
-          d.textContent = w;
-          return d.outerHTML;
-        }).join("<br>");
-        textEl.dataset.rawName = name; // keep for measurement
-        textEl.style.backgroundImage = `url(${imgUrl})`;
-        textEl.style.fontFamily = fontChoice;
-        textEl.dataset.font = fontChoice; // Store for measurement
-        
-        textLayer.appendChild(textEl);
+        const conceptImg = document.createElement("img");
+        conceptImg.className = "card-concept-img";
+        conceptImg.alt = name + " concept";
+        conceptImg.style.width = "100%";
+        conceptImg.style.height = "100%";
+        conceptImg.style.objectFit = "cover";
+        conceptImg.style.display = "block";
+        conceptImg.style.transition = "opacity 0.5s ease, transform 0.5s ease";
+        textLayer.appendChild(conceptImg);
+
         imgWrap.appendChild(textLayer);
+        
+        // Async fetch and set image
+        const searchName = f[FIELDS.nameEn] || f[FIELDS.nameKo];
+        if (searchName) {
+           fetchWikiImage(searchName).then(url => {
+              if (url) {
+                  conceptImg.src = url;
+              } else {
+                  // Fallback to a solid color if no image found
+                  const hue = Math.floor(Math.random() * 360);
+                  conceptImg.style.backgroundColor = `hsl(${hue}, 40%, 40%)`;
+              }
+           });
+        }
         
       } else {
         const randomH = Math.floor(Math.random() * 100) + 320;
@@ -230,30 +195,6 @@
       card.appendChild(imgWrap);
 
       return card;
-    }
-
-    // ─────────────────────────────────────────────────────────────
-    // Compute font sizes → set tile heights to match text
-    // ─────────────────────────────────────────────────────────────
-    function adjustFontSizes() {
-      const cards = document.querySelectorAll(".card");
-      cards.forEach(card => {
-        const textEl = card.querySelector(".card-name-text");
-        if (!textEl) return;
-
-        const wrap = card.querySelector(".card-img-wrap");
-        const w = wrap.offsetWidth;
-        if (w === 0) return;
-
-        const name = textEl.dataset.rawName || textEl.textContent;
-        const ff = textEl.dataset.font;
-        const { fontSize, height } = fitText(w, name, ff);
-
-        textEl.style.fontSize = fontSize + "px";
-        wrap.style.height = height + "px";
-        // Sync background-size so wood grain fills the text shape
-        textEl.style.backgroundSize = `${w}px ${height}px`;
-      });
     }
 
     // ─────────────────────────────────────────────────────────────
@@ -547,20 +488,6 @@
         records.forEach((record, i) => {
           if (!record.fields[FIELDS.nameEn] && !record.fields[FIELDS.nameKo]) return;
           grid.appendChild(buildCard(record, i));
-        });
-
-        // Measure immediately (system fonts), then re-measure
-        // once web fonts finish loading for pixel-perfect fit
-        adjustFontSizes();
-        if (document.fonts && document.fonts.ready) {
-          document.fonts.ready.then(() => adjustFontSizes());
-        }
-        // Safety fallback
-        setTimeout(adjustFontSizes, 3500);
-        
-        // Re-adjust on resize
-        window.addEventListener("resize", () => {
-          adjustFontSizes();
         });
 
         initDragSwap(grid);
