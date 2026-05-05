@@ -70,17 +70,44 @@
     // ─────────────────────────────────────────────────────────────
     async function fetchWikiImage(query) {
       if (!query) return null;
-      const url = `https://en.wikipedia.org/w/api.php?action=query&generator=search&gsrsearch=${encodeURIComponent(query)}&gsrlimit=1&prop=pageimages&format=json&piprop=original&origin=*`;
-      try {
-        const res = await fetch(url);
-        const data = await res.json();
-        const pages = data.query?.pages;
-        if (pages) {
-          const firstPage = Object.values(pages)[0];
-          return firstPage.original?.source || null;
+      
+      async function search(q) {
+        // Add negative keywords to filter out specific portraits, bugs/moths, and inappropriate content
+        const safeQuery = q + ' -nazi -communism -soviet -ussr -insect -bug -spider -moth -portrait -biography -actor -singer -politician -nude -anatomy -sexual';
+        
+        // Fetch up to 10 search results instead of just 1
+        const url = `https://en.wikipedia.org/w/api.php?action=query&generator=search&gsrsearch=${encodeURIComponent(safeQuery)}&gsrlimit=10&prop=pageimages&format=json&piprop=thumbnail&pithumbsize=600&origin=*`;
+        try {
+          const res = await fetch(url);
+          const data = await res.json();
+          if (data.query?.pages) {
+            // Filter out any Wikipedia pages that don't have an image
+            const validPages = Object.values(data.query.pages).filter(page => page.thumbnail?.source);
+            
+            if (validPages.length > 0) {
+              // Pick a random image from the available results!
+              const randomIndex = Math.floor(Math.random() * validPages.length);
+              return validPages[randomIndex].thumbnail.source;
+            }
+          }
+        } catch (err) {
+          console.error("Wiki API error:", err);
         }
-      } catch (err) {
-        console.error("Wiki API error:", err);
+        return null;
+      }
+
+      let img = await search(query);
+      if (img) return img;
+
+      // Fallback 1: Try the last word (usually the species like "Oak")
+      const words = query.trim().split(/\s+/);
+      if (words.length > 1) {
+        img = await search(words[words.length - 1]);
+        if (img) return img;
+        
+        // Fallback 2: Try the first word (usually the color/modifier like "Wheat")
+        img = await search(words[0]);
+        if (img) return img;
       }
       return null;
     }
@@ -106,15 +133,29 @@
       const imgWrap = document.createElement("div");
       imgWrap.className = "card-img-wrap";
       
+      // Calculate overlay rows first so we can determine the necessary tile height
+      const rows = [
+        { label: "한국어명",  value: f[FIELDS.nameKo] },
+        { label: "시리즈",    value: f[FIELDS.series] },
+        { label: "용도",      value: f[FIELDS.purpose] },
+        { label: "유닛 크기", value: f[FIELDS.unitSize] },
+        { label: "반복 최대", value: f[FIELDS.maxRepeat] },
+        { label: "밀도",      value: f[FIELDS.density] },
+        { label: "두께",      value: f[FIELDS.thickness] },
+        { label: "푹신함",    value: f[FIELDS.softness] },
+        { label: "무늬 특징", value: f[FIELDS.pattern] },
+      ].filter(r => r.value);
+
       const imageAttachments = f[FIELDS.image];
       let imgUrl = "";
       
       if (imageAttachments && imageAttachments.length > 0) {
         imgUrl = imageAttachments[0].url;
         
-        // Randomize tile height since we don't have text to dictate it anymore
-        const randomH = Math.floor(Math.random() * 140) + 220;
-        imgWrap.style.height = `${randomH}px`;
+        // Base random height for the masonry look.
+        // If the text description is taller than this, CSS flexbox will automatically stretch the tile!
+        const randomH = Math.floor(Math.random() * 80) + 200;
+        imgWrap.style.minHeight = `${randomH}px`;
         
         // Hidden image (shown on reveal)
         const img = document.createElement("img");
@@ -122,6 +163,7 @@
         img.crossOrigin = "anonymous";
         img.alt     = name;
         img.loading = "lazy";
+        img.draggable = false;
         img.className = "card-wood-img";
         imgWrap.appendChild(img);
 
@@ -132,6 +174,7 @@
         const conceptImg = document.createElement("img");
         conceptImg.className = "card-concept-img";
         conceptImg.alt = name + " concept";
+        conceptImg.draggable = false;
         conceptImg.style.width = "100%";
         conceptImg.style.height = "100%";
         conceptImg.style.objectFit = "cover";
@@ -149,8 +192,9 @@
                   conceptImg.src = url;
               } else {
                   // Fallback to a solid color if no image found
+                  conceptImg.style.display = "none";
                   const hue = Math.floor(Math.random() * 360);
-                  conceptImg.style.backgroundColor = `hsl(${hue}, 40%, 40%)`;
+                  textLayer.style.backgroundColor = `hsl(${hue}, 40%, 40%)`;
               }
            });
         }
@@ -172,18 +216,6 @@
       // Hover overlay — ALL info lives here only
       const overlay = document.createElement("div");
       overlay.className = "card-overlay";
-
-      const rows = [
-        { label: "한국어명",  value: f[FIELDS.nameKo] },
-        { label: "시리즈",    value: f[FIELDS.series] },
-        { label: "용도",      value: f[FIELDS.purpose] },
-        { label: "유닛 크기", value: f[FIELDS.unitSize] },
-        { label: "반복 최대", value: f[FIELDS.maxRepeat] },
-        { label: "밀도",      value: f[FIELDS.density] },
-        { label: "두께",      value: f[FIELDS.thickness] },
-        { label: "푹신함",    value: f[FIELDS.softness] },
-        { label: "무늬 특징", value: f[FIELDS.pattern] },
-      ].filter(r => r.value);
 
       overlay.innerHTML = `
         <p class="overlay-title">${name}</p>
@@ -487,7 +519,21 @@
 
         records.forEach((record, i) => {
           if (!record.fields[FIELDS.nameEn] && !record.fields[FIELDS.nameKo]) return;
-          grid.appendChild(buildCard(record, i));
+          const card = buildCard(record, i);
+          
+          // Add sweeping animation (all at once)
+          card.classList.add("sweep-in");
+          card.style.opacity = "0"; // Start hidden until animation begins
+          
+          // Remove the class after animation completes so it doesn't re-trigger when dragging
+          card.addEventListener("animationend", (e) => {
+            if (e.animationName === "sweepInAnim") {
+              card.classList.remove("sweep-in");
+              card.style.opacity = ""; // clean up inline style
+            }
+          });
+          
+          grid.appendChild(card);
         });
 
         initDragSwap(grid);
