@@ -12,7 +12,7 @@
   <meta name="description" content="An archive of fake wood-grain flooring units collected from Korean residential and commercial product lines." />
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,300;0,400;0,500;0,600;0,700;1,300;1,400;1,500;1,600;1,700&family=Playfair+Display:ital,wght@0,400..900;1,400..900&family=Noto+Sans:wght@400;700&family=Noto+Sans+KR:wght@400;700&display=swap" rel="stylesheet">
+  <link href="https://fonts.googleapis.com/css2?family=Monsieur+La+Doulaise&family=Fleur+De+Leah&family=Rouge+Script&family=Mea+Culpa&family=Lobster&family=Gravitas+One&family=Ultra&family=Noto+Sans:wght@400;700&family=Noto+Sans+KR:wght@400;700&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="style.css" />
   <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
 </head>
@@ -66,72 +66,60 @@
     let isRevealed = false;
 
     // ─────────────────────────────────────────────────────────────
-    // Compute font size to fill tile
+    // Compute font size so each word fills the tile width,
+    // then return the total height needed.
+    // Each word is on its own line (stacked via <br>).
     // ─────────────────────────────────────────────────────────────
-    // Measure to find best font size — guarantees NO mid-word breaks
-    function fitTextToContainer(textEl, containerW, containerH, fontFamily) {
-      const text = textEl.textContent;
+    function fitText(containerW, text, fontFamily) {
       const words = text.split(/\s+/);
-      const pad = 12;
-      const targetW = containerW - pad;
-      const targetH = containerH - pad;
-      const ff = fontFamily || "'Cormorant Garamond', Georgia, serif";
-      
-      // Measurer for the widest single word (nowrap)
-      const wordMeasurer = document.createElement("span");
-      wordMeasurer.style.cssText = `
-        position: absolute; left: -9999px; top: -9999px; visibility: hidden;
-        font-family: ${ff};
-        font-style: italic; font-weight: 600; line-height: 1.0;
-        text-transform: capitalize; letter-spacing: -0.01em;
-        white-space: nowrap; display: inline-block; padding: 0;
+      const hPad = 16;           // breathing room left+right
+      const vPad = 20;           // breathing room top+bottom
+      const targetW = containerW - hPad;
+      const ff = fontFamily;
+
+      // Measure each word individually with nowrap
+      const span = document.createElement("span");
+      span.style.cssText = `
+        position:absolute; left:-9999px; top:-9999px; visibility:hidden;
+        font-family:${ff}; line-height:1.1;
+        text-transform:capitalize; letter-spacing:-0.01em;
+        white-space:nowrap; display:inline-block; padding:0;
       `;
-      document.body.appendChild(wordMeasurer);
-      
-      // Measurer for full text block (wraps at word boundaries)
-      const blockMeasurer = document.createElement("div");
-      blockMeasurer.style.cssText = `
-        position: absolute; left: -9999px; top: -9999px; visibility: hidden;
-        font-family: ${ff};
-        font-style: italic; font-weight: 600; line-height: 1.0;
-        text-align: center; text-transform: capitalize; letter-spacing: -0.01em;
-        word-break: normal; overflow-wrap: normal; hyphens: none;
-        width: ${targetW}px; padding: 0;
-      `;
-      blockMeasurer.textContent = text;
-      document.body.appendChild(blockMeasurer);
-      
-      // Binary search
-      let lo = 14, hi = 300, best = lo;
-      
-      while (lo <= hi) {
-        const mid = Math.floor((lo + hi) / 2);
-        const fontSize = mid + "px";
-        
-        // Check widest word doesn't exceed container width
-        wordMeasurer.style.fontSize = fontSize;
-        let maxWordW = 0;
-        for (const w of words) {
-          wordMeasurer.textContent = w;
-          maxWordW = Math.max(maxWordW, wordMeasurer.offsetWidth);
+      document.body.appendChild(span);
+
+      // For each word, find the largest font-size that fits targetW
+      // Then pick the MINIMUM across all words so they all fit.
+      let minFontSize = 300;
+
+      for (const word of words) {
+        span.textContent = word;
+        let lo = 10, hi = 300, best = lo;
+        while (lo <= hi) {
+          const mid = Math.floor((lo + hi) / 2);
+          span.style.fontSize = mid + "px";
+          if (span.offsetWidth <= targetW) {
+            best = mid;
+            lo = mid + 1;
+          } else {
+            hi = mid - 1;
+          }
         }
-        
-        // Check total text height with natural word wrapping
-        blockMeasurer.style.fontSize = fontSize;
-        const totalH = blockMeasurer.scrollHeight;
-        
-        if (maxWordW <= targetW && totalH <= targetH) {
-          best = mid;
-          lo = mid + 1;
-        } else {
-          hi = mid - 1;
-        }
+        minFontSize = Math.min(minFontSize, best);
       }
-      
-      document.body.removeChild(wordMeasurer);
-      document.body.removeChild(blockMeasurer);
-      
-      return Math.max(14, best);
+
+      // Now measure total height at that font size (all words stacked)
+      span.style.fontSize = minFontSize + "px";
+      let totalH = 0;
+      for (const word of words) {
+        span.textContent = word;
+        totalH += span.offsetHeight;
+      }
+
+      document.body.removeChild(span);
+
+      const fontSize = Math.max(10, minFontSize);
+      const height = totalH + vPad;
+      return { fontSize, height };
     }
 
     // ─────────────────────────────────────────────────────────────
@@ -155,17 +143,18 @@
       const imgWrap = document.createElement("div");
       imgWrap.className = "card-img-wrap";
       
-      // Vary aspect ratios for visual interest
-      const ratios = ["4 / 5", "3 / 4", "5 / 6", "1 / 1", "4 / 5"];
-      imgWrap.style.aspectRatio = ratios[index % ratios.length];
-
       const imageAttachments = f[FIELDS.image];
       let imgUrl = "";
-      
-      // Pick a font family for this card
+
+      // Pick a font family for this card — mix of cursive & heavy serif
       const fonts = [
-        "'Cormorant Garamond', Georgia, serif",
-        "'Playfair Display', Georgia, serif",
+        "'Monsieur La Doulaise', cursive",
+        "'Gravitas One', serif",
+        "'Fleur De Leah', cursive",
+        "'Ultra', serif",
+        "'Rouge Script', cursive",
+        "'Lobster', cursive",
+        "'Mea Culpa', cursive",
       ];
       const fontChoice = fonts[index % fonts.length];
       
@@ -187,7 +176,13 @@
         
         const textEl = document.createElement("span");
         textEl.className = "card-name-text";
-        textEl.textContent = name;
+        // One word per line — no orphans
+        textEl.innerHTML = name.split(/\s+/).map(w => {
+          const d = document.createElement("span");
+          d.textContent = w;
+          return d.outerHTML;
+        }).join("<br>");
+        textEl.dataset.rawName = name; // keep for measurement
         textEl.style.backgroundImage = `url(${imgUrl})`;
         textEl.style.fontFamily = fontChoice;
         textEl.dataset.font = fontChoice; // Store for measurement
@@ -238,41 +233,41 @@
     }
 
     // ─────────────────────────────────────────────────────────────
-    // After all images loaded, compute font sizes to fill tiles
+    // Compute font sizes → set tile heights to match text
     // ─────────────────────────────────────────────────────────────
     function adjustFontSizes() {
       const cards = document.querySelectorAll(".card");
       cards.forEach(card => {
         const textEl = card.querySelector(".card-name-text");
         if (!textEl) return;
-        
+
         const wrap = card.querySelector(".card-img-wrap");
         const w = wrap.offsetWidth;
-        const h = wrap.offsetHeight;
-        
-        if (w === 0 || h === 0) return;
-        
-        const fontFamily = textEl.dataset.font;
-        const fontSize = fitTextToContainer(textEl, w, h, fontFamily);
+        if (w === 0) return;
+
+        const name = textEl.dataset.rawName || textEl.textContent;
+        const ff = textEl.dataset.font;
+        const { fontSize, height } = fitText(w, name, ff);
+
         textEl.style.fontSize = fontSize + "px";
-        
-        // Also adjust background-size so the wood grain is nicely visible in the text
-        textEl.style.backgroundSize = `${w}px ${h}px`;
+        wrap.style.height = height + "px";
+        // Sync background-size so wood grain fills the text shape
+        textEl.style.backgroundSize = `${w}px ${height}px`;
       });
     }
 
     // ─────────────────────────────────────────────────────────────
-    // Reveal: click to show the actual wood
+    // Toggle: click to switch between fancy-text and plain-wood
     // ─────────────────────────────────────────────────────────────
-    function revealWood() {
-      if (isRevealed) return;
-      isRevealed = true;
-      
-      document.body.classList.add("revealed");
-      
-      // Hide click hint
+    function toggleReveal() {
+      isRevealed = !isRevealed;
+      document.body.classList.toggle("revealed", isRevealed);
+
       const hint = document.getElementById("click-hint");
-      if (hint) hint.classList.add("hidden");
+      if (hint) {
+        if (isRevealed) hint.classList.add("hidden");
+        else hint.classList.remove("hidden");
+      }
     }
 
     // ─────────────────────────────────────────────────────────────
@@ -396,8 +391,8 @@
             clone   = null;
             dragSrc = null;
           } else {
-            // Simple click → reveal the wood
-            revealWood();
+            // Simple click → toggle text / wood
+            toggleReveal();
           }
         }
 
@@ -407,8 +402,8 @@
 
       // Also listen on body for clicks outside the grid
       document.body.addEventListener("click", (e) => {
-        if (!isRevealed && !e.target.closest("#download-btn")) {
-          revealWood();
+        if (!e.target.closest(".card") && !e.target.closest("#download-btn")) {
+          toggleReveal();
         }
       });
 
@@ -554,33 +549,14 @@
           grid.appendChild(buildCard(record, i));
         });
 
-        // Wait for images to load, then compute font sizes
-        const images = grid.querySelectorAll(".card-wood-img");
-        let loaded = 0;
-        const totalImages = images.length;
-        
-        if (totalImages === 0) {
-          adjustFontSizes();
-        } else {
-          images.forEach(img => {
-            if (img.complete) {
-              loaded++;
-              if (loaded >= totalImages) adjustFontSizes();
-            } else {
-              img.addEventListener("load", () => {
-                loaded++;
-                if (loaded >= totalImages) adjustFontSizes();
-              });
-              img.addEventListener("error", () => {
-                loaded++;
-                if (loaded >= totalImages) adjustFontSizes();
-              });
-            }
-          });
-          
-          // Fallback: adjust after 3s regardless
-          setTimeout(adjustFontSizes, 3000);
+        // Measure immediately (system fonts), then re-measure
+        // once web fonts finish loading for pixel-perfect fit
+        adjustFontSizes();
+        if (document.fonts && document.fonts.ready) {
+          document.fonts.ready.then(() => adjustFontSizes());
         }
+        // Safety fallback
+        setTimeout(adjustFontSizes, 3500);
         
         // Re-adjust on resize
         window.addEventListener("resize", () => {
