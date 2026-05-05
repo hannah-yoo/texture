@@ -72,22 +72,32 @@
       if (!query) return null;
       
       async function search(q) {
-        // Add negative keywords to filter out specific portraits, bugs/moths, and inappropriate content
-        const safeQuery = q + ' -nazi -communism -soviet -ussr -insect -bug -spider -moth -portrait -biography -actor -singer -politician -nude -anatomy -sexual';
+        // Keeping the negative keywords to protect against gross/inappropriate images
+        const safeQuery = q + ' -nazi -communism -soviet -ussr -insect -bug -spider -moth -portrait -biography -actor -singer -politician -nude -anatomy -sexual -organ -medical -disease -blood -surgery -flesh -tissue -muscle -person -human -man -woman -author -writer -artist -born -died -death -incategory:"Living people"';
         
-        // Fetch up to 10 search results instead of just 1
-        const url = `https://en.wikipedia.org/w/api.php?action=query&generator=search&gsrsearch=${encodeURIComponent(safeQuery)}&gsrlimit=10&prop=pageimages&format=json&piprop=thumbnail&pithumbsize=600&origin=*`;
+        // Switched back to English Wikipedia for maximum relevance and fast loading
+        // Reduced gsrlimit to 8 to keep the API extremely fast, while still allowing enough variety for random selection
+        const url = `https://en.wikipedia.org/w/api.php?action=query&generator=search&gsrsearch=${encodeURIComponent(safeQuery)}&gsrlimit=8&prop=pageimages&format=json&piprop=thumbnail|original&pithumbsize=600&origin=*`;
         try {
           const res = await fetch(url);
           const data = await res.json();
           if (data.query?.pages) {
-            // Filter out any Wikipedia pages that don't have an image
-            const validPages = Object.values(data.query.pages).filter(page => page.thumbnail?.source);
+            // Filter out pages that don't have an image
+            const validPages = Object.values(data.query.pages).filter(p => p.thumbnail?.source || p.original?.source);
             
             if (validPages.length > 0) {
-              // Pick a random image from the available results!
-              const randomIndex = Math.floor(Math.random() * validPages.length);
-              return validPages[randomIndex].thumbnail.source;
+              // Look specifically for GIFs in the original source URLs
+              const gifPages = validPages.filter(p => p.original?.source?.toLowerCase().endsWith('.gif'));
+              
+              if (gifPages.length > 0) {
+                 const randomGif = gifPages[Math.floor(Math.random() * gifPages.length)];
+                 return randomGif.original.source; // Use original animated URL
+              }
+              
+              // Pick a random highly-relevant image
+              const randomPage = validPages[Math.floor(Math.random() * validPages.length)];
+              // Prefer the smaller thumbnail to keep load times lightning fast
+              return randomPage.thumbnail?.source || randomPage.original?.source;
             }
           }
         } catch (err) {
